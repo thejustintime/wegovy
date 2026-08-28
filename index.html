@@ -1750,9 +1750,11 @@ function updatePhotoPreview(){
 
 function saveCheckin(){
   try {
-    const date = $('ci-date').value || todayISO();
+    const dEl = $('ci-date');
+    const date = (dEl && dEl.value) || todayISO();
     const num = (id) => { const el=$(id); return (el && el.value !== '') ? +el.value : null; };
     const sl  = (id, d) => { const el=$(id); return el ? +el.value : d; };
+    const notesEl = $('ci-notes');
     const entry = {
       id: editingId || uid(),
       date,
@@ -1762,9 +1764,8 @@ function saveCheckin(){
       energy:sl('ci-energy',5), cravings:sl('ci-cravings',0),
       bm:getToggle('bm'), constipation:getToggle('constipation'), heartburn:getToggle('heartburn'), stomach:getToggle('stomach'),
       mood:sl('ci-mood',6), stress:sl('ci-stress',4), sleep:num('ci-sleep'),
-      notes:(($('ci-notes')||{}).value||'').trim(), photo:currentPhoto,
+      notes:(notesEl ? (notesEl.value||'') : '').trim(), photo:currentPhoto,
     };
-    // upsert: one entry per date (unless editing a specific id)
     const existing = state.entries.find(e => e.date === date && e.id !== entry.id);
     if (existing && !editingId) entry.id = existing.id;
     state.entries = state.entries.filter(e => e.id !== entry.id && !(e.date === date && !editingId));
@@ -1772,7 +1773,7 @@ function saveCheckin(){
     if (!state.meta) state.meta = { lowest:null, milestones:[] };
     if (!Array.isArray(state.meta.milestones)) state.meta.milestones = [];
 
-    // persist — surface storage errors instead of failing silently
+    // PERSIST — surface storage errors, roll back on failure
     try {
       save();
     } catch (err) {
@@ -1782,7 +1783,9 @@ function saveCheckin(){
       return;
     }
 
-    // milestones / confetti (never let this block a successful save)
+    // Data is now saved. Update the UI, but never let a display error hide success.
+    var glitch = null;
+    const step = (nm, fn) => { try { fn(); } catch(e){ if(!glitch) glitch = nm + ': ' + ((e&&e.message)||e); } };
     try {
       if (entry.weight != null){
         const prevLowest = (state.meta.lowest != null) ? state.meta.lowest : state.settings.baseline;
@@ -1799,11 +1802,16 @@ function saveCheckin(){
         }
       }
     } catch(e){}
-
-    clearForm();
-    renderAll();
-    toast('Check-in saved');
-    switchTab('dashboard');
+    step('clearForm', clearForm);
+    step('renderHeader', renderHeader);
+    step('renderDashboard', renderDashboard);
+    step('renderCheckinStatics', renderCheckinStatics);
+    step('renderRecentEntries', renderRecentEntries);
+    step('renderInjections', renderInjections);
+    step('renderWeekly', renderWeekly);
+    try { drawIcons(); } catch(e){}
+    toast(glitch ? ('Saved \u2713 \u2014 ' + glitch) : 'Check-in saved');
+    try { switchTab('dashboard'); } catch(e){}
   } catch (err) {
     toast('\u26a0\ufe0f Save error: ' + ((err&&err.message)||err));
   }
