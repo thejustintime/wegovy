@@ -1749,47 +1749,64 @@ function updatePhotoPreview(){
 }
 
 function saveCheckin(){
-  const date = $('ci-date').value || todayISO();
-  const num = (id) => { const v = $(id).value; return v === '' ? null : +v; };
-  const entry = {
-    id: editingId || uid(),
-    date,
-    weight:num('ci-weight'), water:num('ci-water'), protein:num('ci-protein'),
-    calories:num('ci-calories'), steps:num('ci-steps'), exercise:num('ci-exercise'),
-    nausea:+$('ci-nausea').value, fatigue:+$('ci-fatigue').value, hunger:+$('ci-hunger').value,
-    energy:+$('ci-energy').value, cravings:+$('ci-cravings').value,
-    bm:getToggle('bm'), constipation:getToggle('constipation'), heartburn:getToggle('heartburn'), stomach:getToggle('stomach'),
-    mood:+$('ci-mood').value, stress:+$('ci-stress').value, sleep:num('ci-sleep'),
-    notes:$('ci-notes').value.trim(), photo:currentPhoto,
-  };
-  // upsert: one entry per date (unless editing a specific id)
-  const existing = state.entries.find(e => e.date === date && e.id !== entry.id);
-  if (existing && !editingId) entry.id = existing.id;
-  state.entries = state.entries.filter(e => e.id !== entry.id && !(e.date === date && !editingId));
-  state.entries.push(entry);
-  save();
+  try {
+    const date = $('ci-date').value || todayISO();
+    const num = (id) => { const el=$(id); return (el && el.value !== '') ? +el.value : null; };
+    const sl  = (id, d) => { const el=$(id); return el ? +el.value : d; };
+    const entry = {
+      id: editingId || uid(),
+      date,
+      weight:num('ci-weight'), water:num('ci-water'), protein:num('ci-protein'),
+      calories:num('ci-calories'), steps:num('ci-steps'), exercise:num('ci-exercise'),
+      nausea:sl('ci-nausea',0), fatigue:sl('ci-fatigue',0), hunger:sl('ci-hunger',0),
+      energy:sl('ci-energy',5), cravings:sl('ci-cravings',0),
+      bm:getToggle('bm'), constipation:getToggle('constipation'), heartburn:getToggle('heartburn'), stomach:getToggle('stomach'),
+      mood:sl('ci-mood',6), stress:sl('ci-stress',4), sleep:num('ci-sleep'),
+      notes:(($('ci-notes')||{}).value||'').trim(), photo:currentPhoto,
+    };
+    // upsert: one entry per date (unless editing a specific id)
+    const existing = state.entries.find(e => e.date === date && e.id !== entry.id);
+    if (existing && !editingId) entry.id = existing.id;
+    state.entries = state.entries.filter(e => e.id !== entry.id && !(e.date === date && !editingId));
+    state.entries.push(entry);
+    if (!state.meta) state.meta = { lowest:null, milestones:[] };
+    if (!Array.isArray(state.meta.milestones)) state.meta.milestones = [];
 
-  // milestone / confetti on new low
-  if (entry.weight != null){
-    const prevLowest = state.meta.lowest ?? state.settings.baseline;
-    if (entry.weight < prevLowest){
-      state.meta.lowest = entry.weight;
-      const lost = state.settings.baseline - entry.weight;
-      [5,10,15,20].forEach(t => {
-        if (lost >= t && !state.meta.milestones.includes(t)){
-          state.meta.milestones.push(t);
-          celebrate();
-          toast(`🎉 New milestone: ${t} lb lost!`);
-        }
-      });
+    // persist — surface storage errors instead of failing silently
+    try {
       save();
-      if (!state.meta.milestones.length || lost < 5) confettiSmall();
+    } catch (err) {
+      state.entries = state.entries.filter(e => e.id !== entry.id);
+      const full = err && (err.name === 'QuotaExceededError' || /quota|storage/i.test((err.message||'')));
+      toast(full ? '\u26a0\ufe0f Storage full \u2014 remove a photo, or Export then Clear old data' : ('\u26a0\ufe0f Save failed: ' + ((err&&err.message)||'storage error')));
+      return;
     }
+
+    // milestones / confetti (never let this block a successful save)
+    try {
+      if (entry.weight != null){
+        const prevLowest = (state.meta.lowest != null) ? state.meta.lowest : state.settings.baseline;
+        if (entry.weight < prevLowest){
+          state.meta.lowest = entry.weight;
+          const lost = state.settings.baseline - entry.weight;
+          [5,10,15,20].forEach(t => {
+            if (lost >= t && !state.meta.milestones.includes(t)){
+              state.meta.milestones.push(t); celebrate(); toast('\ud83c\udf89 New milestone: ' + t + ' lb lost!');
+            }
+          });
+          try { save(); } catch(e){}
+          if (lost < 5) confettiSmall();
+        }
+      }
+    } catch(e){}
+
+    clearForm();
+    renderAll();
+    toast('Check-in saved');
+    switchTab('dashboard');
+  } catch (err) {
+    toast('\u26a0\ufe0f Save error: ' + ((err&&err.message)||err));
   }
-  clearForm();
-  renderAll();
-  toast('Check-in saved');
-  switchTab('dashboard');
 }
 
 function renderRecentEntries(){
