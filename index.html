@@ -1488,7 +1488,7 @@ function renderHeader(){
   const wk = currentWeek();
   $('header-sub').textContent = `Week ${wk} · ${doseForWeek(wk)} mg`;
   $('lock-icon').setAttribute('data-lucide', locked ? 'lock' : 'lock-open');
-  $('lock-icon').className = 'w-[18px] h-[18px] ' + (locked ? 'text-amber-400' : 'text-emerald-400');
+  { const li = $('lock-icon'); if (li) li.setAttribute('class', 'w-[18px] h-[18px] ' + (locked ? 'text-amber-400' : 'text-emerald-400')); }
 }
 
 /* ----- Dashboard ----- */
@@ -1699,11 +1699,11 @@ function setToggle(key, on){
     ? 'bg-emerald-500/15 border-emerald-500/50'
     : 'bg-red-500/15 border-red-500/50';
   btn.className = `toggle-btn flex items-center gap-2 px-3 py-3 rounded-xl border text-left transition ${on ? active : 'bg-slate-800 border-slate-700'}`;
-  const icon = btn.querySelector('i');
+  const icon = btn.querySelector('svg, i');
   const txt = btn.querySelector('span');
   const color = key === 'bm' ? 'text-emerald-400' : 'text-red-400';
-  icon.className = `w-4 h-4 ${on ? color : 'text-slate-400'}`;
-  txt.className = `text-[12px] font-semibold ${on ? 'text-white' : 'text-slate-300'}`;
+  if (icon) icon.setAttribute('class', `w-4 h-4 ${on ? color : 'text-slate-400'}`);
+  if (txt) txt.className = `text-[12px] font-semibold ${on ? 'text-white' : 'text-slate-300'}`;
 }
 const getToggle = (key) => document.querySelector(`[data-toggle="${key}"]`)?.dataset.active === 'true';
 
