@@ -1335,6 +1335,9 @@
         <i data-lucide="upload" class="w-4 h-4"></i> Import JSON
         <input id="import-file" type="file" accept="application/json,.json" class="hidden" />
       </label>
+      <button id="btn-paste" class="w-full py-3 rounded-2xl bg-slate-800 border border-slate-700 font-semibold text-slate-200 flex items-center justify-center gap-2">
+        <i data-lucide="clipboard-check" class="w-4 h-4"></i> Paste JSON from ChatGPT
+      </button>
       <button id="btn-eventlog" class="w-full py-3 rounded-2xl bg-slate-800 border border-slate-700 font-semibold text-slate-200 flex items-center justify-center gap-2">
         <i data-lucide="clipboard-check" class="w-4 h-4"></i> Event log
       </button>
@@ -1346,6 +1349,19 @@
       </button>
     </div>
     <button id="data-close" class="w-full mt-4 py-3 rounded-2xl bg-slate-800 border border-slate-700 font-semibold text-slate-300">Close</button>
+  </div>
+</div>
+
+<!-- Paste JSON -->
+<div id="modal-paste" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+  <div class="w-full max-w-sm rounded-3xl bg-card border border-slate-700 p-6">
+    <div class="flex items-center gap-2 mb-2"><i data-lucide="clipboard-check" class="w-5 h-5 text-brand"></i><h3 class="text-lg font-bold">Paste from ChatGPT</h3></div>
+    <p class="text-[11px] text-slate-500 mb-3">Paste the JSON package ChatGPT gave you, then tap Review.</p>
+    <textarea id="paste-json" rows="8" class="w-full bg-slate-800 rounded-xl px-3 py-2.5 text-xs border border-slate-700 focus:border-brand outline-none resize-none" placeholder='{ "type": "wegovy-events", "events": [ ... ] }'></textarea>
+    <div class="grid grid-cols-2 gap-2 mt-3">
+      <button id="paste-cancel" class="py-3 rounded-2xl bg-slate-800 border border-slate-700 font-semibold text-slate-300">Cancel</button>
+      <button id="paste-review" class="py-3 rounded-2xl grad-brand text-white font-bold">Review</button>
+    </div>
   </div>
 </div>
 
@@ -1382,7 +1398,7 @@
     <div class="flex items-center gap-2 mb-3"><i data-lucide="upload" class="w-5 h-5 text-brand"></i><h3 class="text-lg font-bold">Review import</h3></div>
     <div id="import-summary" class="text-sm text-slate-300 mb-3"></div>
     <div id="import-preview-list" class="space-y-2 max-h-64 overflow-y-auto mb-3"></div>
-    <p class="text-[11px] text-slate-500 mb-3">A backup of your current data downloads first. Existing records are kept; duplicates are skipped.</p>
+    <p class="text-[11px] text-slate-500 mb-3">Existing records are kept and duplicates skipped — nothing is overwritten. (A full-backup restore downloads a backup first.)</p>
     <div class="grid grid-cols-2 gap-2">
       <button id="import-cancel" class="py-3 rounded-2xl bg-slate-800 border border-slate-700 font-semibold text-slate-300">Cancel</button>
       <button id="import-apply" class="py-3 rounded-2xl grad-emerald text-white font-bold">Apply</button>
@@ -2167,20 +2183,27 @@ function classifyEvents(list){
 }
 
 let pendingImport = null;
+function importFromText(text){
+  let raw = String(text||'').trim();
+  raw = raw.replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+  let parsed = null;
+  try { parsed = JSON.parse(raw); }
+  catch(e){
+    const m = raw.match(/[\{\[][\s\S]*[\}\]]/);
+    if (m){ try { parsed = JSON.parse(m[0]); } catch(e2){} }
+  }
+  if (parsed == null){ toast('\u26a0\ufe0f That isn\u2019t valid JSON'); return; }
+  let list = null;
+  if (Array.isArray(parsed)) list = parsed;
+  else if (parsed && parsed.type === 'wegovy-events' && Array.isArray(parsed.events)) list = parsed.events;
+  else if (parsed && Array.isArray(parsed.events) && !parsed.entries) list = parsed.events;
+  if (list){ pendingImport = { kind:'events', result: classifyEvents(list) }; showImportPreview(pendingImport.result); return; }
+  if (parsed && parsed.settings && Array.isArray(parsed.entries)){ pendingImport = { kind:'backup', data: parsed }; showBackupPreview(parsed); return; }
+  toast('\u26a0\ufe0f Unrecognized \u2014 need an events package or a full backup');
+}
 function importData(file){
   const reader = new FileReader();
-  reader.onload = () => {
-    let parsed;
-    try { parsed = JSON.parse(reader.result); }
-    catch(e){ toast('\u26a0\ufe0f That file isn\u2019t valid JSON'); return; }
-    let list = null;
-    if (Array.isArray(parsed)) list = parsed;
-    else if (parsed && parsed.type === 'wegovy-events' && Array.isArray(parsed.events)) list = parsed.events;
-    else if (parsed && Array.isArray(parsed.events) && !parsed.entries) list = parsed.events;
-    if (list){ pendingImport = { kind:'events', result: classifyEvents(list) }; showImportPreview(pendingImport.result); return; }
-    if (parsed && parsed.settings && Array.isArray(parsed.entries)){ pendingImport = { kind:'backup', data: parsed }; showBackupPreview(parsed); return; }
-    toast('\u26a0\ufe0f Unrecognized file \u2014 need an events package or a full backup');
-  };
+  reader.onload = () => importFromText(reader.result);
   reader.readAsText(file);
 }
 function showImportPreview(c){
@@ -2199,13 +2222,13 @@ function showBackupPreview(d){
 }
 function applyImport(){
   if(!pendingImport) return;
-  try { exportData(true); } catch(e){}
   try {
     if(pendingImport.kind==='events'){
       state.events = (state.events||[]).concat(pendingImport.result.valid);
       save();
       toast('Added '+pendingImport.result.valid.length+' event(s)');
     } else if(pendingImport.kind==='backup'){
+      try { exportData(true); } catch(e){}
       const d = pendingImport.data;
       d.injections = Array.isArray(d.injections)?d.injections:[];
       d.meta = d.meta || { lowest:null, milestones:[] };
@@ -2277,6 +2300,9 @@ function wire(){
   $('btn-meds').onclick = () => { renderMeds(); $('modal-meds').classList.remove('hidden'); };
   $('meds-close').onclick = () => $('modal-meds').classList.add('hidden');
   $('med-add').onclick = addMed;
+  $('btn-paste').onclick = () => { $('paste-json').value=''; $('modal-paste').classList.remove('hidden'); };
+  $('paste-cancel').onclick = () => $('modal-paste').classList.add('hidden');
+  $('paste-review').onclick = () => { const t=($('paste-json').value||'').trim(); if(!t){ toast('Paste some JSON first'); return; } $('modal-paste').classList.add('hidden'); importFromText(t); };
   $('import-cancel').onclick = () => { pendingImport = null; $('modal-import').classList.add('hidden'); };
   $('import-apply').onclick = applyImport;
   $('import-file').onchange = (e) => { if (e.target.files[0]) importData(e.target.files[0]); e.target.value=''; };
@@ -2311,7 +2337,7 @@ function wire(){
   $('chart-range').onchange = () => renderCharts();
 
   // close modals on backdrop tap
-  ['modal-pin','modal-goal','modal-data','modal-import','modal-eventlog','modal-meds'].forEach(id => {
+  ['modal-pin','modal-goal','modal-data','modal-import','modal-eventlog','modal-meds','modal-paste'].forEach(id => {
     $(id).addEventListener('click', e => { if (e.target.id === id) $(id).classList.add('hidden'); });
   });
 }
